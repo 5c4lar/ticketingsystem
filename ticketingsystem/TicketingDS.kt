@@ -1,57 +1,64 @@
 package ticketingsystem
 
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.Lock
 import java.util.concurrent.locks.ReentrantLock
 
 
 class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val stationnum: Int, val threadnum: Int) :
   TicketingSystem {
   @Volatile
-  var tid = 0L
-  private val lock = ReentrantLock()
+  var tid: AtomicLong = AtomicLong(0)
+  private val ticketLock = ReentrantLock()
 
-  inner class Route {
-    inner class Seat(val cid: Int, val sid: Int, var departure: Int = 1, var arrival: Int = stationnum) {
-      var prev: Seat? = this
-      var next: Seat? = this
+  inner class Route: Lock by ReentrantLock() {
+    inner class Seat(val cid: Int, val sid: Int, var departure: Int = 1, var arrival: Int = stationnum) :Lock by ReentrantLock() {
+      var prev: Seat = this
+      var next: Seat = this
       fun insert(head: Seat?) {
         if (head != null) {
-          prev = head.prev
-          next = head
-          head.prev!!.next = this
-          head.prev = this
+          head.lock()
+          head.prev.lock()
+          try {
+            next = head
+            prev = head.prev
+            prev.next = this
+            head.prev = this
+          } finally {
+            prev.unlock()
+            head.unlock()
+          }
+
         }
       }
 
       fun remove() {
-        if (prev != this) {
-          prev!!.next = next
-          next!!.prev = prev
+        next.lock()
+        this.lock()
+        prev.lock()
+        val nexNode = next
+        val prevNode = prev
+        try {
+          prev.next = next
+          next.prev = prev
+          prev = this
+          next = this
+        } finally {
+          prevNode.unlock()
+          this.unlock()
+          nexNode.unlock()
         }
-        prev = this
-        next = this
       }
     }
 
-    inner class Interval(val departure: Int, val arrival: Int) {
+    inner class Interval(private val departure: Int, private val arrival: Int): Lock by ReentrantLock() {
       @Volatile
-      var head: Seat? = null
+      var head: Seat = Seat(-1, -1, departure, arrival)
       @Volatile
       var num: Int = 0
-//      fun insert(seat: Seat) {
-//        require(seat.departure == departure && seat.arrival == arrival)
-//        seat.insert(head)
-//        head = seat
-//        num++
-//      }
 
       fun remove(seat: Seat) {
         require(seat.departure == departure && seat.arrival == arrival)
-        require(num > 0)
-        if (num == 1) {
-          head = null
-        } else if (seat == head) {
-          head = seat.next
-        }
         seat.remove()
         num--
         check(num >= 0)
@@ -60,7 +67,6 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       fun push(seat: Seat) {
         require(seat.departure == departure && seat.arrival == arrival)
         seat.insert(head)
-        head = seat
         num++
       }
 
@@ -68,13 +74,25 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
         if (num == 0) {
           return null
         }
-        val seat = head
-        if (num == 1) {
-          head = null
-        } else {
-          head = seat!!.next
+        val seat = head.prev
+        seat.remove()
+        num--
+        check(num >= 0)
+        return seat
+      }
+
+      fun enq(seat: Seat) {
+        require(seat.departure == departure && seat.arrival == arrival)
+        seat.insert(head)
+        num++
+      }
+
+      fun deq(): Seat? {
+        if (num == 0) {
+          return null
         }
-        seat!!.remove()
+        val seat = head.next
+        seat.remove()
         num--
         check(num >= 0)
         return seat
@@ -90,9 +108,8 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
     init {
       for (coach in seats) {
         for (seat in coach) {
-
           val interval = intervals[seat[0].departure - 1][seat[0].arrival - seat[0].departure - 1]
-          interval.push(seat[0])
+          interval.enq(seat[0])
         }
       }
     }
@@ -111,17 +128,17 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
         for (end in arrival..stationnum) {
           val interval = intervals[start - 1][end - start - 1]
           if (interval.num > 0) {
-            val seat = interval.pop()!!
+            val seat = interval.deq()!!
             seats[seat.cid - 1][seat.sid - 1].remove(seat)
             if (seat.departure < departure) {
               val newSeat = Seat(seat.cid, seat.sid, seat.departure, departure)
               seats[seat.cid - 1][seat.sid - 1].add(newSeat)
-              intervals[newSeat.departure - 1][newSeat.arrival - newSeat.departure - 1].push(newSeat)
+              intervals[newSeat.departure - 1][newSeat.arrival - newSeat.departure - 1].enq(newSeat)
             }
             if (seat.arrival > arrival) {
               val newSeat = Seat(seat.cid, seat.sid, arrival, seat.arrival)
               seats[seat.cid - 1][seat.sid - 1].add(newSeat)
-              intervals[newSeat.departure - 1][newSeat.arrival - newSeat.departure - 1].push(newSeat)
+              intervals[newSeat.departure - 1][newSeat.arrival - newSeat.departure - 1].enq(newSeat)
             }
             seat.departure = departure
             seat.arrival = arrival
@@ -164,7 +181,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
 
   private val tickets = mutableMapOf<Long, Ticket>()
 
-  fun Ticket.setFileds(t:Long, r: Int, c: Int, s: Int, d: Int, a: Int, p: String?) {
+  private fun Ticket.setFields(t:Long, r: Int, c: Int, s: Int, d: Int, a: Int, p: String?) {
     this.tid = t
     this.route = r
     this.coach = c
@@ -193,21 +210,19 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
    */
   override fun buyTicket(passenger: String?, route: Int, departure: Int, arrival: Int): Ticket? {
     val r = routes[route - 1]
-    val ticket:Ticket
-    lock.lock()
+    r.lock()
     try {
       val seat = r.getSeat(departure, arrival) ?: return null
-      ticket = Ticket()
-      ticket.setFileds(
-        tid, route, seat.cid, seat.sid, departure,arrival, passenger
+      val ticket = Ticket()
+      val ticketId = tid.getAndIncrement()
+      ticket.setFields(
+        ticketId, route, seat.cid, seat.sid, departure,arrival, passenger
       )
-      tickets[tid] = ticket
-      tid += 1
+      tickets[ticketId] = ticket
+      return ticket
+    } finally {
+      r.unlock()
     }
-    finally {
-      lock.unlock()
-    }
-    return ticket
   }
 
   /**
@@ -217,13 +232,13 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
    * @return
    */
   override fun inquiry(route: Int, departure: Int, arrival: Int): Int {
-    lock.lock()
+    val r = routes[route - 1]
+    r.lock()
     try {
-      return routes[route - 1].inquiry(departure, arrival)
+      return r.inquiry(departure, arrival)
     } finally {
-      lock.unlock()
+      r.unlock()
     }
-
   }
 
   /**
@@ -231,9 +246,12 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
    * @return
    */
   override fun refundTicket(ticket: Ticket?): Boolean {
-    lock.lock()
+    if (ticket == null || !tickets.contains(ticket.tid)) {
+      return false
+    }
+    ticketLock.lock()
     try {
-      if (ticket == null || !tickets.contains(ticket.tid)) {
+      if (!tickets.contains(ticket.tid)) {
         return false
       }
       val ticketData = TicketData(
@@ -258,12 +276,19 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       if (recordData != ticketData) {
         return false
       }
-      routes[ticket.route - 1].returnSeat(ticket.coach, ticket.seat, ticket.departure, ticket.arrival)
+      val route = routes[ticket.route - 1]
+      route.lock()
+      try {
+        route.returnSeat(ticket.coach, ticket.seat, ticket.departure, ticket.arrival)
+      } finally {
+        route.unlock()
+      }
       tickets.remove(ticket.tid)
-      return true
     } finally {
-      lock.unlock()
+      ticketLock.unlock()
     }
+
+    return true
   }
 
   /**
