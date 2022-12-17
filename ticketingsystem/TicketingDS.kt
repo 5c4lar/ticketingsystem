@@ -1,187 +1,171 @@
 package ticketingsystem
 
+import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.locks.Lock
-import java.util.concurrent.locks.ReentrantLock
-
 
 class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val stationnum: Int, val threadnum: Int) :
   TicketingSystem {
-  @Volatile
-  var tid: AtomicLong = AtomicLong(0)
-  private val ticketLock = ReentrantLock()
 
-  inner class Route: Lock by ReentrantLock() {
-    inner class Seat(val cid: Int, val sid: Int, var departure: Int = 1, var arrival: Int = stationnum) :Lock by ReentrantLock() {
-      var prev: Seat = this
-      var next: Seat = this
-      fun insert(head: Seat?) {
-        if (head != null) {
-          head.lock()
-          head.prev.lock()
-          try {
-            next = head
-            prev = head.prev
-            prev.next = this
-            head.prev = this
-          } finally {
-            prev.unlock()
-            head.unlock()
-          }
+  private val tid = AtomicLong(0)
+  private val tickets = ConcurrentHashMap<Long, Ticket>()
 
-        }
-      }
+  data class Edit(val start: Int, val end: Int, val update: Int)
+  data class EditGroup(val edits: List<Edit>)
 
-      fun remove() {
-        next.lock()
-        this.lock()
-        prev.lock()
-        val nexNode = next
-        val prevNode = prev
-        try {
-          prev.next = next
-          next.prev = prev
-          prev = this
-          next = this
-        } finally {
-          prevNode.unlock()
-          this.unlock()
-          nexNode.unlock()
-        }
-      }
-    }
+  inner class Route(private val rid: Int) {
 
-    inner class Interval(private val departure: Int, private val arrival: Int): Lock by ReentrantLock() {
-      @Volatile
-      var head: Seat = Seat(-1, -1, departure, arrival)
-      @Volatile
-      var num: Int = 0
-
-      fun remove(seat: Seat) {
-        require(seat.departure == departure && seat.arrival == arrival)
-        seat.remove()
-        num--
-        check(num >= 0)
-      }
-
-      fun push(seat: Seat) {
-        require(seat.departure == departure && seat.arrival == arrival)
-        seat.insert(head)
-        num++
-      }
-
-      fun pop(): Seat? {
-        if (num == 0) {
-          return null
-        }
-        val seat = head.prev
-        seat.remove()
-        num--
-        check(num >= 0)
-        return seat
-      }
-
-      fun enq(seat: Seat) {
-        require(seat.departure == departure && seat.arrival == arrival)
-        seat.insert(head)
-        num++
-      }
-
-      fun deq(): Seat? {
-        if (num == 0) {
-          return null
-        }
-        val seat = head.next
-        seat.remove()
-        num--
-        check(num >= 0)
-        return seat
-      }
-    }
-    private val seats = Array(coachnum) { cid -> Array(seatnum) { sid -> mutableListOf(Seat(cid + 1, sid + 1)) } }
-    private val intervals: Array<Array<Interval>> = Array( stationnum ) { departure ->
-      Array(stationnum - departure) { idx ->
-        Interval(departure + 1, departure + 1 + (idx + 1))
-      }
-    }
+    private val seatNums = Array((stationnum * (stationnum - 1) / 2)) { 0 }
+    private val intervals: Array<ConcurrentSkipListSet<Seat>> =
+      Array((stationnum * (stationnum - 1) / 2)) { ConcurrentSkipListSet() }
+    private val seats = Array(coachnum) { cid -> Array(seatnum) { sid -> Seat(cid + 1, sid + 1) } }
+    private val pendingUpdates = ConcurrentLinkedQueue<EditGroup>()
 
     init {
-      for (coach in seats) {
-        for (seat in coach) {
-          val interval = intervals[seat[0].departure - 1][seat[0].arrival - seat[0].departure - 1]
-          interval.enq(seat[0])
+      seatNums[intervalToId(0, stationnum - 1)] = coachnum * seatnum
+      for (cid in 0 until coachnum) {
+        for (sid in 0 until seatnum) {
+          intervals[intervalToId(0, stationnum - 1)].add(seats[cid][sid])
         }
       }
     }
+
+    private fun intervalToId(start: Int, end: Int): Int {
+      return start * stationnum - start * (start + 1) / 2 + end - start - 1
+    }
+
+    inner class Seat(val cid: Int, val sid: Int): Comparable<Seat> {
+      private val status: AtomicLong = AtomicLong((1L shl stationnum - 1) - 1)
+      fun containsInterval(start: Int, end: Int): Boolean {
+        var mask = (1L shl end) - (1L shl start)
+        return status.get() and mask == mask
+      }
+
+      fun markInterval(start: Int, end: Int): Boolean {
+        var mask = (1L shl end) - (1L shl start)
+        while (true) {
+          val num = status.get()
+          if (num and mask.inv() != num) return false
+          val num2 = num or mask
+          if (num == num2 || status.compareAndSet(num, num2)) return true
+        }
+      }
+
+      fun unmarkInterval(start: Int, end: Int): Boolean {
+        var mask = (1L shl end) - (1L shl start)
+        while (true) {
+          val num = status.get()
+          if (num and mask != mask) return false
+          val num2 = num and mask.inv()
+          if (num == num2 || status.compareAndSet(num, num2)) return true
+        }
+      }
+
+      override fun compareTo(other: Seat): Int {
+        return if (cid != other.cid) cid - other.cid else sid - other.sid
+      }
+    }
+
+    @Synchronized
     fun inquiry(departure: Int, arrival: Int): Int {
-      var num = 0
-      for (start in 1 .. departure) {
-        for (end in arrival..stationnum) {
-          num += intervals[start - 1][end - start - 1].num
+      val edits = pendingUpdates.toArray()
+//      println("inquiry: $departure $arrival")
+      for (item in edits) {
+        val edit = item as EditGroup
+        pendingUpdates.poll()
+        for (e in edit.edits) {
+//          println("update: $rid ${e.start} ${e.end} ${e.update}")
+          seatNums[intervalToId(e.start, e.end)] += e.update
         }
       }
-      check(num >= 0)
-      return num
+      var sum = 0
+      for (i in 0..departure) {
+        for (j in arrival until stationnum) {
+          val id = intervalToId(i, j)
+          sum += seatNums[id]
+        }
+      }
+      return sum
     }
-    fun getSeat(departure: Int, arrival: Int): Seat? {
-      for (start in 1 .. departure) {
-        for (end in arrival..stationnum) {
-          val interval = intervals[start - 1][end - start - 1]
-          if (interval.num > 0) {
-            val seat = interval.deq()!!
-            seats[seat.cid - 1][seat.sid - 1].remove(seat)
-            if (seat.departure < departure) {
-              val newSeat = Seat(seat.cid, seat.sid, seat.departure, departure)
-              seats[seat.cid - 1][seat.sid - 1].add(newSeat)
-              intervals[newSeat.departure - 1][newSeat.arrival - newSeat.departure - 1].enq(newSeat)
+
+    fun buyTicket(passenger: String?, departure: Int, arrival: Int): Ticket? {
+      for (i in departure downTo 0) {
+        for (j in arrival until stationnum) {
+          val id = intervalToId(i, j)
+          while (true) {
+            val seat = intervals[id].pollFirst() ?: break
+            if (!seat.unmarkInterval(departure, arrival)) {
+              continue
             }
-            if (seat.arrival > arrival) {
-              val newSeat = Seat(seat.cid, seat.sid, arrival, seat.arrival)
-              seats[seat.cid - 1][seat.sid - 1].add(newSeat)
-              intervals[newSeat.departure - 1][newSeat.arrival - newSeat.departure - 1].enq(newSeat)
+            val edits = mutableListOf<Edit>()
+            edits.add(Edit(i, j, -1))
+            if (i < departure) {
+//              if (intervals[intervalToId(i, departure)].add(seat))
+                edits.add(Edit(i, departure, 1))
+
             }
-            seat.departure = departure
-            seat.arrival = arrival
-            return seat
+            if (j > arrival) {
+//              if (intervals[intervalToId(arrival, j)].add(seat))
+                edits.add(Edit(arrival, j, 1))
+            }
+            pendingUpdates.add(EditGroup(edits))
+            if (i < departure) {
+              intervals[intervalToId(i, departure)].add(seat)
+            }
+            if (j > arrival) {
+              intervals[intervalToId(arrival, j)].add(seat)
+            }
+            val ticket = Ticket()
+            val cid = seat.cid
+            val sid = seat.sid
+            ticket.setFields(tid.incrementAndGet(), rid, cid, sid, departure + 1, arrival + 1, passenger)
+            return ticket
           }
         }
       }
       return null
     }
-    fun returnSeat(cid: Int, sid: Int, start: Int, end: Int) {
-      var prev:Seat? = null
-      var next:Seat? = null
-      var departure = start
-      var arrival = end
-      for (s in seats[cid - 1][sid - 1]) {
-        if (s.arrival == departure) {
-          prev = s
-          departure = s.departure
-          intervals[prev.departure - 1][prev.arrival - prev.departure - 1].remove(prev)
+
+    fun refundTicket(ticket: Ticket?): Boolean {
+      if (ticket == null) return false
+      val cid = ticket.coach
+      val sid = ticket.seat
+      val departure = ticket.departure - 1
+      val arrival = ticket.arrival - 1
+      val seat = seats[cid - 1][sid - 1]
+      if (!seat.markInterval(departure, arrival)) return false
+      val edits = mutableListOf<Edit>()
+      var prevStart = departure
+      var nextEnd = arrival
+      for (i in (departure - 1) downTo 0) {
+        if (seat.containsInterval(i, departure)) {
+          if (intervals[intervalToId(i, departure)].remove(seat)) {
+            edits.add(Edit(i, departure, -1))
+            prevStart = i
+          }
+        } else {
+          break
         }
-        if (s.departure == arrival) {
-          next = s
-          arrival = s.arrival
-          intervals[next.departure - 1][next.arrival - next.departure - 1].remove(next)
+      }
+      for (i in (arrival + 1) until stationnum) {
+        if (seat.containsInterval(arrival, i)) {
+          if (intervals[intervalToId(arrival, i)].remove(seat)) {
+            edits.add(Edit(arrival, i, -1))
+            nextEnd = i
+          }
+        } else {
+          break
         }
       }
-      if (prev != null) {
-        seats[cid - 1][sid - 1].remove(prev)
-      }
-      if (next != null) {
-        seats[cid - 1][sid - 1].remove(next)
-      }
-      val seat = Seat(cid, sid, departure, arrival)
-      seats[cid - 1][sid - 1].add(seat)
-      intervals[seat.departure - 1][seat.arrival - seat.departure - 1].push(seat)
+      edits.add(Edit(prevStart, nextEnd, 1))
+      pendingUpdates.add(EditGroup(edits))
+      intervals[intervalToId(prevStart, nextEnd)].add(seat)
+      return true
     }
   }
 
-  private val routes = Array(routenum) { Route() }
+  private val routes = Array(routenum) { Route(it + 1) }
 
-  private val tickets = mutableMapOf<Long, Ticket>()
-
-  private fun Ticket.setFields(t:Long, r: Int, c: Int, s: Int, d: Int, a: Int, p: String?) {
+  private fun Ticket.setFields(t: Long, r: Int, c: Int, s: Int, d: Int, a: Int, p: String?) {
     this.tid = t
     this.route = r
     this.coach = c
@@ -209,20 +193,12 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
    * @return
    */
   override fun buyTicket(passenger: String?, route: Int, departure: Int, arrival: Int): Ticket? {
-    val r = routes[route - 1]
-    r.lock()
-    try {
-      val seat = r.getSeat(departure, arrival) ?: return null
-      val ticket = Ticket()
-      val ticketId = tid.getAndIncrement()
-      ticket.setFields(
-        ticketId, route, seat.cid, seat.sid, departure,arrival, passenger
-      )
-      tickets[ticketId] = ticket
-      return ticket
-    } finally {
-      r.unlock()
+    if (departure >= arrival) return null
+    val ticket = routes[route - 1].buyTicket(passenger, departure - 1, arrival - 1)
+    if (ticket != null) {
+      tickets[ticket.tid] = ticket
     }
+    return ticket
   }
 
   /**
@@ -233,12 +209,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
    */
   override fun inquiry(route: Int, departure: Int, arrival: Int): Int {
     val r = routes[route - 1]
-    r.lock()
-    try {
-      return r.inquiry(departure, arrival)
-    } finally {
-      r.unlock()
-    }
+    return r.inquiry(departure - 1, arrival - 1)
   }
 
   /**
@@ -246,49 +217,11 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
    * @return
    */
   override fun refundTicket(ticket: Ticket?): Boolean {
-    if (ticket == null || !tickets.contains(ticket.tid)) {
-      return false
+    return if (tickets.remove(ticket?.tid) != null) {
+      routes[ticket!!.route - 1].refundTicket(ticket)
+    } else {
+      false
     }
-    ticketLock.lock()
-    try {
-      if (!tickets.contains(ticket.tid)) {
-        return false
-      }
-      val ticketData = TicketData(
-        ticket.tid,
-        ticket.passenger,
-        ticket.route,
-        ticket.coach,
-        ticket.seat,
-        ticket.departure,
-        ticket.arrival
-      )
-      val record = tickets[ticket.tid]!!
-      val recordData = TicketData(
-        record.tid,
-        record.passenger,
-        record.route,
-        record.coach,
-        record.seat,
-        record.departure,
-        record.arrival
-      )
-      if (recordData != ticketData) {
-        return false
-      }
-      val route = routes[ticket.route - 1]
-      route.lock()
-      try {
-        route.returnSeat(ticket.coach, ticket.seat, ticket.departure, ticket.arrival)
-      } finally {
-        route.unlock()
-      }
-      tickets.remove(ticket.tid)
-    } finally {
-      ticketLock.unlock()
-    }
-
-    return true
   }
 
   /**
@@ -305,5 +238,5 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
    */
   override fun refundTicketReplay(ticket: Ticket?): Boolean {
     return false
-  } //ToDo
+  }
 }
