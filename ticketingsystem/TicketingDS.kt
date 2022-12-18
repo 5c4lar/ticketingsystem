@@ -2,7 +2,7 @@ package ticketingsystem
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.ConcurrentSkipListSet
+import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.withLock
@@ -19,8 +19,8 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
   inner class Route(private val rid: Int) {
 
     private val seatNums = Array((stationnum * (stationnum - 1) / 2)) { 0 }
-    private val intervals: Array<ConcurrentSkipListSet<Seat>> =
-      Array((stationnum * (stationnum - 1) / 2)) { ConcurrentSkipListSet() }
+    private val intervals: Array<ConcurrentLinkedDeque<Seat>> =
+      Array((stationnum * (stationnum - 1) / 2)) { ConcurrentLinkedDeque() }
     private val seats = Array(coachnum) { cid -> Array(seatnum) { sid -> Seat(cid + 1, sid + 1) } }
     // private val pendingUpdates = ConcurrentLinkedQueue<EditGroup>()
     private val updateLock = ReentrantReadWriteLock()
@@ -112,15 +112,12 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
             val edits = mutableListOf<Edit>()
             edits.add(Edit(i, j, -1))
             if (i < departure) {
-//              if (intervals[intervalToId(i, departure)].add(seat))
               edits.add(Edit(i, departure, 1))
 
             }
             if (j > arrival) {
-//              if (intervals[intervalToId(arrival, j)].add(seat))
               edits.add(Edit(arrival, j, 1))
             }
-//            pendingUpdates.add(EditGroup(edits))
             updateNums(EditGroup(edits))
             if (i < departure) {
               intervals[intervalToId(i, departure)].add(seat)
