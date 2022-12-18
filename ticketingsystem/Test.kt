@@ -6,6 +6,10 @@ import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
 
 object Test {
+  internal class myInt {
+    @Volatile
+    var value = 0
+  }
   var threadnum = 0 //input
 
   var testnum = 0 //input
@@ -114,7 +118,7 @@ object Test {
         refRatio = linescanner.nextInt()
         buyRatio = linescanner.nextInt()
         inqRatio = linescanner.nextInt()
-        //System.out.println("route: " + routenum + ", coach: " + coachnum + ", seatnum: " + seatnum + ", station: " + stationnum + ", refundRatio: " + refRatio + ", buyRatio: " + buyRatio + ", inquiryRatio: " + inqRatio);
+//        System.out.println("route: " + routenum + ", coach: " + coachnum + ", seatnum: " + seatnum + ", station: " + stationnum + ", refundRatio: " + refRatio + ", buyRatio: " + buyRatio + ", inquiryRatio: " + inqRatio);
         linescanner.close()
       }
       scanner.close()
@@ -139,9 +143,6 @@ object Test {
         if (soldTicket[ThreadId.get()].size == 0) return false
         val n = rand.nextInt(soldTicket[ThreadId.get()].size)
         ticket = soldTicket[ThreadId.get()].removeAt(n)
-        if (ticket == null) {
-          return false
-        }
         currentTicket[ThreadId.get()] = ticket
         val flag = tds!!.refundTicket(ticket)
         currentRes[ThreadId.get()] = "true"
@@ -241,12 +242,7 @@ object Test {
                   return@Runnable
                 }
               }
-              val preTime = System.nanoTime() - startTime
-              val flag = execute(j)
-              val postTime = System.nanoTime() - startTime
-//              if (flag) {
-//                print(preTime, postTime, methodList[j])
-//              }
+              execute(j)
               cnt += freqList[j]
             }
           }
@@ -269,6 +265,6 @@ object Test {
     }
     val endTime = System.nanoTime()
     println("Total time: ${(endTime - startTime) / 10e6} ms")
-    println("Throughput: ${(testnum * threadnum * 10e9).toDouble() / (endTime - startTime)} ops/s")
+    println("Throughput: ${(testnum * threadnum * 10e6).toDouble() / (endTime - startTime)} ops/s")
   }
 }
