@@ -1,14 +1,10 @@
 package ticketingsystem
 
-import ticketingsystem.TicketingDS.ActionEnum.*
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.locks.ReentrantReadWriteLock
 
 class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val stationnum: Int, val threadnum: Int) :
   TicketingSystem {
@@ -16,218 +12,12 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
   private val tid = AtomicLong(0)
   private val tickets = ConcurrentHashMap<Long, Ticket>()
 
-  enum class ActionEnum {
-    BUY, REFUND, QUERY, TRANSFER
-  }
-
-  data class Action(
-    val action: ActionEnum, val start: Int, val end: Int, val threadId: Int, val versionId: Int,
-  )
-
-  enum class PHASE {
-    UPDATING, QUERYING, IDLE
-  }
-
-//  class BoundedQueue<T>(capacity: Int) {
-//    private val container = Array<Any?>(capacity + 1) { null }
-//    private var head = AtomicInteger(0)
-//    private var tail = AtomicInteger(0)
-//
-//    val size: Int
-//      get() {
-//        val h = head.get()
-//        val t = tail.get()
-//        return if (h <= t) t - h else container.size - h + t
-//      }
-//    fun add(element: T) {
-//      container[tail.getAndIncrement() % container.size] = element
-//    }
-//
-//    fun poll(): T? {
-//      val element = container[head.getAndIncrement() % container.size]
-//      return element as T
-//    }
-//
-//    fun peek(): T? {
-//      val element = container[head.get() % container.size]
-//      return element as T
-//    }
-//  }
-
   inner class Route(private val rid: Int) {
-    inner class StateManager() {
-
-      private val capacity = threadnum + 1
-      private val currentVersion = AtomicInteger(0)
-      private val newestVersion = AtomicInteger(0)
-      private val versionLock = ReentrantReadWriteLock()
-      private val states: Array<UInt> = Array(stationnum * (stationnum - 1) / 2) { (coachnum * seatnum).toUInt() }
-      private val threadResBuffer = Array(threadnum) { 0u }
-      private val workList: Array<ConcurrentLinkedQueue<Action>> =
-        Array(capacity) { ConcurrentLinkedQueue() }
-      private val queryList: Array<ConcurrentLinkedQueue<Action>> = Array(capacity) { ConcurrentLinkedQueue() }
-      private val queryListLock: Array<ReentrantReadWriteLock> = Array(capacity) { ReentrantReadWriteLock() }
-      private val updateLatches: Array<CountDownLatch?> = Array(capacity) { null }
-      private val queryLatches: Array<CountDownLatch?> = Array(capacity) { null }
-      private val phases: Array<AtomicInteger> = Array(capacity) { AtomicInteger(PHASE.IDLE.ordinal) }
-      private val queryListFlag: Array<AtomicBoolean> = Array(capacity) { AtomicBoolean(false) }
-      private val mask = (1u shl 31) - 1u
-
-      init {
-        phases[1 % capacity].set(PHASE.UPDATING.ordinal)
-      }
-
-      fun update(buy: Boolean, prevStart: Int, start: Int, end: Int, nextEnd: Int) {
-        val versionId = newestVersion.incrementAndGet()
-        val list = workList[versionId % capacity]
-        var count = 0
-        for (i in prevStart until end) {
-          for (j in maxOf(i, start) + 1..nextEnd) {
-            count++
-          }
-        }
-        updateLatches[versionId % capacity] = CountDownLatch(count)
-        val action = if (buy) BUY else REFUND
-        for (i in prevStart until end) {
-          for (j in maxOf(i, start) + 1..nextEnd) {
-            list.add(Action(action, i, j, 0, versionId))
-          }
-        }
-        list.add(Action(TRANSFER, 0, 0, threadId.get(), versionId))
-        takeAction(versionId)
-      }
-
-      fun query(departure: Int, arrival: Int): UInt {
-        var queryVersion: Int
-        while (true) {
-
-          versionLock.readLock().lock()
-          try {
-            var versionId = newestVersion.get()
-            if (versionId == currentVersion.get()) { // currentVersion <= newestVersion
-              return states[intervalToId(departure, arrival)]
-            }
-            val queryLock = queryListLock[versionId % capacity]
-            if (queryLock.readLock().tryLock()) {
-              try {
-                if (queryListFlag[versionId % capacity].get()) {
-                  continue
-                } else {
-                  val queryAction = Action(QUERY, departure, arrival, threadId.get(), versionId)
-                  val list = queryList[versionId % capacity]
-                  list.add(queryAction)
-                  queryVersion = versionId
-                  break
-                }
-              } finally {
-                queryLock.readLock().unlock()
-              }
-            } else {
-              continue
-            }
-          } finally {
-            versionLock.readLock().unlock()
-          }
-
-        }
-        takeAction(queryVersion)
-        val currentRes = threadResBuffer[threadId.get()]
-        threadResBuffer[threadId.get()] = 0u
-        return currentRes and mask
-      }
-
-      private fun stepUpdate(workVersion: Int) {
-        val list = workList[workVersion % capacity]
-        val action = list.poll() ?: return
-        when (action.action) {
-          BUY -> {
-            states[intervalToId(action.start, action.end)]--
-            updateLatches[workVersion % capacity]!!.countDown()
-          }
-
-          REFUND -> {
-            states[intervalToId(action.start, action.end)]++
-            updateLatches[workVersion % capacity]!!.countDown()
-          }
-
-          TRANSFER -> {
-            updateLatches[workVersion % capacity]!!.await()
-            val queryLock = queryListLock[workVersion % capacity]
-            queryLock.writeLock().lock()
-            try {
-              queryListFlag[workVersion % capacity].set(true)
-              val queryList = queryList[workVersion % capacity]
-              queryLatches[workVersion % capacity] = CountDownLatch(queryList.size)
-              queryList.add(Action(TRANSFER, 0, 0, threadId.get(), workVersion))
-            } finally {
-              queryLock.writeLock().unlock()
-            }
-            phases[workVersion % capacity].set(PHASE.QUERYING.ordinal)
-          }
-
-          else -> {
-            throw Exception("Invalid action")
-          }
-        }
-      }
-
-      private fun stepQuery(workVersion: Int) {
-        val list = queryList[workVersion % capacity]
-        val action = list.poll() ?: return
-        when (action.action) {
-          QUERY -> {
-            val res = states[intervalToId(action.start, action.end)]
-            threadResBuffer[action.threadId] = res or mask.inv()
-            queryLatches[workVersion % capacity]!!.countDown()
-          }
-
-          TRANSFER -> {
-            queryLatches[workVersion % capacity]!!.await()
-            versionLock.writeLock().lock()
-            try {
-              currentVersion.incrementAndGet()
-              queryListFlag[workVersion % capacity].set(false)
-              phases[workVersion % capacity].set(PHASE.IDLE.ordinal)
-              phases[(workVersion + 1) % capacity].set(PHASE.UPDATING.ordinal)
-            } finally {
-              versionLock.writeLock().unlock()
-            }
-          }
-
-          else -> {
-            throw Exception("Invalid action")
-          }
-        }
-      }
-
-      private fun takeAction(targetVersion: Int) {
-        while (true) {
-          val currentCopy = currentVersion.get()
-          if (currentCopy >= targetVersion && phases[currentCopy % capacity].get() == PHASE.IDLE.ordinal) {
-            return
-          }
-          val workVersion = currentCopy + 1
-          when (phases[workVersion % capacity].get()) {
-            PHASE.UPDATING.ordinal -> {
-              stepUpdate(workVersion)
-            }
-
-            PHASE.QUERYING.ordinal -> {
-              stepQuery(workVersion)
-            }
-
-            PHASE.IDLE.ordinal -> {
-              continue
-            }
-          }
-        }
-      }
-    }
-
-    private val stateManager = StateManager()
+    private val seatStates = Array(stationnum * (stationnum - 1) / 2) { coachnum * seatnum }
     private val intervals = Array((stationnum * (stationnum - 1) / 2)) { ConcurrentLinkedQueue<Seat>() }
     private val seats = Array(coachnum) { cid -> Array(seatnum) { sid -> Seat(cid + 1, sid + 1) } }
-    private val threadId = ThreadLocal.withInitial { ThreadId.get() }
+    private val version = AtomicInteger(0)
+    private val currentVersion = AtomicInteger(0)
 
     init {
       for (cid in 0 until coachnum) {
@@ -235,6 +25,36 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
           intervals[intervalToId(0, stationnum - 1)].add(seats[cid][sid])
         }
       }
+    }
+
+    private fun updateBuy(prevStart: Int, start: Int, end: Int, nextEnd: Int) {
+      val stamp = version.incrementAndGet()
+      while (currentVersion.get() != stamp - 1) {
+//        Thread.yield()
+      }
+      for (i in 0 until stationnum) {
+        for (j in i + 1 until stationnum) {
+          if (i in prevStart until end && j in maxOf(i, start) + 1..nextEnd) {
+            seatStates[intervalToId(i, j)] -= 1
+          }
+        }
+      }
+      currentVersion.set(stamp)
+    }
+
+    private fun updateRefund(prevStart: Int, start: Int, end: Int, nextEnd: Int) {
+      val stamp = version.incrementAndGet()
+      while (currentVersion.get() != stamp - 1) {
+//        Thread.yield()
+      }
+      for (i in 0 until stationnum) {
+        for (j in i + 1 until stationnum) {
+          if (i in prevStart until end && j in maxOf(i, start) + 1..nextEnd) {
+            seatStates[intervalToId(i, j)] += 1
+          }
+        }
+      }
+      currentVersion.set(stamp)
     }
 
     private fun intervalToId(start: Int, end: Int): Int {
@@ -290,7 +110,14 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
     }
 
     fun inquiry(departure: Int, arrival: Int): Int {
-      return stateManager.query(departure, arrival).toInt()
+      val targetStamp = version.get()
+      while (true) {
+        val stamp = currentVersion.get()
+        if (stamp >= targetStamp) {
+          return seatStates[intervalToId(departure, arrival)]
+        }
+//        Thread.yield()
+      }
     }
 
     fun buyTicket(passenger: String?, departure: Int, arrival: Int): Ticket? {
@@ -317,7 +144,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
             } else {
               continue
             }
-            stateManager.update(true, i, departure, arrival, j)
+            updateBuy(i, departure, arrival, j)
             val ticket = Ticket()
             val cid = seat.cid
             val sid = seat.sid
@@ -363,7 +190,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       } finally {
         seat.release()
       }
-      stateManager.update(false, prevStart, departure, arrival, nextEnd)
+      updateRefund(prevStart, departure, arrival, nextEnd)
       return true
     }
   }
