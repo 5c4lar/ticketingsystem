@@ -223,17 +223,20 @@ object Test {
     val benchNum = args[2].toInt()
     val warmUpNum = args[3].toInt()
     readConfig("TrainConfig")
-    val throughputs = DoubleArray(benchNum)
+    // val throughputs = DoubleArray(benchNum)
+    val times = LongArray(benchNum)
     val threadPool = Executors.newFixedThreadPool(threadnum)
     for (i in 0 until warmUpNum) {
       benchMarkOne(threadPool)
     }
     for (i in 0 until benchNum) {
       val res = benchMarkOne(threadPool)
-      throughputs[i] = testnum * threadnum * 10e6 / res
+      times[i] = res
+      // throughputs[i] = testnum * threadnum * 10e6 / res
     }
     threadPool.shutdown()
+    val meanThroughputs = (testnum * threadnum * 10e6 * benchNum) / times.sum().toDouble()
     // calc average without min and max
-    println("Average throughput: ${throughputs.filter { it != throughputs.min() && it != throughputs.max() }.average()} ops/ms")
+    println("Average throughput: $meanThroughputs ops/ms")
   }
 }
