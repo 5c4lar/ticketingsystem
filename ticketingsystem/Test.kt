@@ -234,7 +234,12 @@ object Test {
       times[i] = res
       // throughputs[i] = testnum * threadnum * 10e6 / res
     }
-    threadPool.shutdown()
+    try {
+      threadPool.shutdown()
+      threadPool.awaitTermination(1, TimeUnit.SECONDS)
+    } catch (e: InterruptedException) {
+      e.printStackTrace()
+    }
     val meanThroughputs = (testnum * threadnum * 10e6 * benchNum) / times.sum().toDouble()
     // calc average without min and max
     println("Average throughput: $meanThroughputs ops/ms")
