@@ -153,7 +153,7 @@ object Test {
   }
 
 
-  private fun readConfig(filename: String): Boolean {
+  fun readConfig(filename: String): Boolean {
     try {
       val scanner = Scanner(File(filename))
       while (scanner.hasNextLine()) {
@@ -184,7 +184,7 @@ object Test {
     return true
   }
 
-  private fun benchMarkOne(threadPool: ExecutorService): Long {
+  fun benchMarkOne(threadPool: ExecutorService): Long {
     initialization()
     val exitLatch = CountDownLatch(threadnum)
     val tasks = Array(threadnum) {

@@ -19,4 +19,8 @@ public class ThreadId {
     public static int get() {
         return threadId.get();
     }
+
+    public static void reset() {
+    	nextId.set(0);
+    }
 }
