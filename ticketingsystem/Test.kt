@@ -6,10 +6,6 @@ import java.util.*
 import java.util.concurrent.*
 
 object Test {
-  internal class myInt {
-    @Volatile
-    var value = 0
-  }
 
   var threadnum = 0 //input
 
