@@ -12,6 +12,48 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
   private val tid = AtomicLong(0)
   private val tickets = ConcurrentHashMap<Long, Ticket>()
 
+  private val intervalToIdMap: Array<Array<Int>> =
+    Array(stationnum) { start -> Array(stationnum) { end -> start * stationnum - start * (start + 1) / 2 + end - start - 1 } }
+
+  private val idToIntervalMap: Array<Pair<Int, Int>> = Array(stationnum * (stationnum - 1) / 2) { 0 to 0 }
+
+  private val outerIntervalMap: Array<Array<Int>> =
+    Array(stationnum * (stationnum - 1) / 2) { Array(1 shl (stationnum - 1)) { -1 } }
+
+  init {
+    for (start in 0 until stationnum) {
+      for (end in start + 1 until stationnum) {
+        idToIntervalMap[intervalToIdMap[start][end]] = start to end
+      }
+    }
+    for (innerId in 0 until stationnum * (stationnum - 1) / 2) {
+      val (start, end) = idToIntervalMap[innerId]
+      val maskThis = (1 shl end) - (1 shl start)
+      for (num in 0 until (1 shl (stationnum - 1))) {
+        var outerId = -1
+        if (num and maskThis != maskThis) {
+          outerIntervalMap[innerId][num] = outerId
+        } else {
+          var prevStart = start
+          var nextEnd = end
+          while (prevStart > 0) {
+            val mask = (1 shl start) - (1 shl (prevStart - 1))
+            if (num and mask != mask) break
+            prevStart--
+          }
+          while (nextEnd < (stationnum - 1)) {
+            val mask = (1 shl (nextEnd + 1)) - (1 shl end)
+            if (num and mask != mask) break
+            nextEnd++
+          }
+          outerId = intervalToIdMap[prevStart][nextEnd]
+          outerIntervalMap[innerId][num] = outerId
+        }
+      }
+    }
+  }
+
+
   inner class Route(private val rid: Int) {
     private val seatStates = Array(stationnum * (stationnum - 1) / 2) { coachnum * seatnum }
     private val intervals = Array((stationnum * (stationnum - 1) / 2)) { ConcurrentLinkedQueue<Seat>() }
@@ -54,11 +96,11 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
     }
 
     private fun intervalToId(start: Int, end: Int): Int {
-      return start * stationnum - start * (start + 1) / 2 + end - start - 1
+      return intervalToIdMap[start][end]
     }
 
     inner class Seat(val cid: Int, val sid: Int) : Comparable<Seat> {
-      private val status: AtomicLong = AtomicLong((1L shl stationnum - 1) - 1)
+      private val status: AtomicInteger = AtomicInteger((1 shl (stationnum - 1)) - 1)
       private val busy: AtomicBoolean = AtomicBoolean(false)
 
       fun aquire() {
@@ -72,7 +114,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       }
 
       fun markInterval(start: Int, end: Int): Boolean {
-        var mask = (1L shl end) - (1L shl start)
+        var mask = (1 shl end) - (1 shl start)
         while (true) {
           val num = status.get()
           if (num and mask.inv() != num) return false
@@ -82,7 +124,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       }
 
       fun unmarkInterval(start: Int, end: Int): Boolean {
-        var mask = (1L shl end) - (1L shl start)
+        var mask = (1 shl end) - (1 shl start)
         while (true) {
           val num = status.get()
           if (num and mask != mask) return false
@@ -92,20 +134,9 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       }
 
       fun getOuterInterval(start: Int, end: Int): Pair<Int, Int> {
-        var num = status.get()
-        var prevStart = start
-        var nextEnd = end
-        while (prevStart > 0) {
-          val mask = (1L shl start) - (1L shl (prevStart - 1))
-          if (num and mask != mask) break
-          prevStart--
-        }
-        while (nextEnd < (stationnum - 1)) {
-          val mask = (1L shl (nextEnd + 1)) - (1L shl end)
-          if (num and mask != mask) break
-          nextEnd++
-        }
-        return Pair(prevStart, nextEnd)
+        return idToIntervalMap[outerIntervalMap[intervalToId(
+          start, end
+        )][status.get() or ((1 shl end) - (1 shl start))]]
       }
 
       override fun compareTo(other: Seat): Int {
