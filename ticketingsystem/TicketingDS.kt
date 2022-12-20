@@ -72,7 +72,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       }
 
       fun markInterval(start: Int, end: Int): Boolean {
-        var mask = (1L shl end) - (1L shl start)
+        val mask = (1L shl end) - (1L shl start)
         while (true) {
           val num = status.get()
           if (num and mask.inv() != num) return false
@@ -82,7 +82,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       }
 
       fun unmarkInterval(start: Int, end: Int): Boolean {
-        var mask = (1L shl end) - (1L shl start)
+        val mask = (1L shl end) - (1L shl start)
         while (true) {
           val num = status.get()
           if (num and mask != mask) return false
@@ -92,7 +92,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       }
 
       fun getOuterInterval(start: Int, end: Int): Pair<Int, Int> {
-        var num = status.get()
+        val num = status.get()
         var prevStart = start
         var nextEnd = end
         while (prevStart > 0) {
@@ -125,7 +125,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
     }
 
     fun buyTicket(passenger: String?, departure: Int, arrival: Int): Ticket? {
-      var stamp: Int
+      val stamp: Int
       val id = intervalToId(departure, arrival)
       val prevStart: Int
       val nextEnd: Int
@@ -155,7 +155,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       return ticket
     }
 
-    fun refundIntervals(prevStart: Int, start: Int, end: Int, nextEnd: Int, seat: Seat) {
+    private fun refundIntervals(prevStart: Int, start: Int, end: Int, nextEnd: Int, seat: Seat) {
       for (i in prevStart until end) {
         for (j in maxOf(i, start) + 1..nextEnd) {
           val interval = intervals[intervalToId(i, j)]
@@ -173,7 +173,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       val prevStart: Int
       val nextEnd: Int
       val seat = seats[cid - 1][sid - 1]
-      var stamp: Int
+      val stamp: Int
       seat.aquire()
       try {
         if (!seat.markInterval(departure, arrival)) return false

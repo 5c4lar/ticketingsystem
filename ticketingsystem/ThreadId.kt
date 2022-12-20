@@ -1,26 +1,24 @@
-package ticketingsystem;
+package ticketingsystem
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicInteger
 
-public class ThreadId {
-    // Atomic integer containing the next thread ID to be assigned
-    private static final AtomicInteger nextId = new AtomicInteger(0);
+object ThreadId {
+  // Atomic integer containing the next thread ID to be assigned
+  private val nextId = AtomicInteger(0)
 
-    // Thread local variable containing each thread's ID
-    private static final ThreadLocal<Integer> threadId =
-            new ThreadLocal<Integer>() {
-                @Override
-                protected Integer initialValue() {
-                    return nextId.getAndIncrement();
-                }
-            };
-
-    // Returns the current thread's unique ID, assigning it if necessary
-    public static int get() {
-        return threadId.get();
+  // Thread local variable containing each thread's ID
+  private val threadId: ThreadLocal<Int> = object : ThreadLocal<Int>() {
+    override fun initialValue(): Int {
+      return nextId.getAndIncrement()
     }
+  }
 
-    public static void reset() {
-    	nextId.set(0);
-    }
+  // Returns the current thread's unique ID, assigning it if necessary
+  fun get(): Int {
+    return threadId.get()
+  }
+
+  fun reset() {
+    nextId.set(0)
+  }
 }
