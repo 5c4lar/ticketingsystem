@@ -179,7 +179,6 @@ object Test {
         refRatio = linescanner.nextInt()
         buyRatio = linescanner.nextInt()
         inqRatio = linescanner.nextInt()
-//        System.out.println("route: " + routenum + ", coach: " + coachnum + ", seatnum: " + seatnum + ", station: " + stationnum + ", refundRatio: " + refRatio + ", buyRatio: " + buyRatio + ", inquiryRatio: " + inqRatio);
         linescanner.close()
       }
       scanner.close()
@@ -189,10 +188,10 @@ object Test {
     return true
   }
 
-  fun benchMarkOne(threadPool: ExecutorService): Long {
+  private fun benchMarkOne(threadPool: ExecutorService): Long {
     initialization()
     val exitLatch = CountDownLatch(threadnum)
-    val tasks = Array<Runnable>(threadnum) {
+    val tasks = Array(threadnum) {
       Runnable {
         val executor = Executor()
         for (i in 0 until testnum) {
@@ -223,7 +222,6 @@ object Test {
     val benchNum = args[2].toInt()
     val warmUpNum = args[3].toInt()
     readConfig("TrainConfig")
-    // val throughputs = DoubleArray(benchNum)
     val times = LongArray(benchNum)
     val threadPool = Executors.newFixedThreadPool(threadnum)
     for (i in 0 until warmUpNum) {
@@ -232,7 +230,6 @@ object Test {
     for (i in 0 until benchNum) {
       val res = benchMarkOne(threadPool)
       times[i] = res
-      // throughputs[i] = testnum * threadnum * 10e6 / res
     }
     try {
       threadPool.shutdown()

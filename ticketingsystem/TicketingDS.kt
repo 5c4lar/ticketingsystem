@@ -27,8 +27,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       }
     }
 
-    private fun updateBuy(prevStart: Int, start: Int, end: Int, nextEnd: Int) {
-      val stamp = version.incrementAndGet()
+    private fun updateBuy(prevStart: Int, start: Int, end: Int, nextEnd: Int, stamp: Int) {
       while (currentVersion.get() != stamp - 1) {
 //        Thread.yield()
       }
@@ -42,8 +41,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       currentVersion.set(stamp)
     }
 
-    private fun updateRefund(prevStart: Int, start: Int, end: Int, nextEnd: Int) {
-      val stamp = version.incrementAndGet()
+    private fun updateRefund(prevStart: Int, start: Int, end: Int, nextEnd: Int, stamp: Int) {
       while (currentVersion.get() != stamp - 1) {
 //        Thread.yield()
       }
@@ -121,6 +119,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
     }
 
     fun buyTicket(passenger: String?, departure: Int, arrival: Int): Ticket? {
+      var stamp: Int
       for (i in departure downTo 0) {
         for (j in arrival until stationnum) {
           val id = intervalToId(i, j)
@@ -138,13 +137,14 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
                 if (j > arrival) {
                   intervals[intervalToId(arrival, j)].add(seat)
                 }
+                stamp = version.incrementAndGet()
               } finally {
                 seat.release()
               }
             } else {
               continue
             }
-            updateBuy(i, departure, arrival, j)
+            updateBuy(i, departure, arrival, j, stamp)
             val ticket = Ticket()
             val cid = seat.cid
             val sid = seat.sid
@@ -165,6 +165,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       var prevStart = departure
       var nextEnd = arrival
       val seat = seats[cid - 1][sid - 1]
+      var stamp: Int
       seat.aquire()
       try {
         if (!seat.markInterval(departure, arrival)) return false
@@ -187,10 +188,11 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
           }
         }
         intervals[intervalToId(prevStart, nextEnd)].add(seat)
+        stamp = version.incrementAndGet()
       } finally {
         seat.release()
       }
-      updateRefund(prevStart, departure, arrival, nextEnd)
+      updateRefund(prevStart, departure, arrival, nextEnd, stamp)
       return true
     }
   }
