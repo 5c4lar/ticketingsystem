@@ -1,12 +1,13 @@
-# ticketingsystem
-ticketingsystem in kotlin &amp; java
+# Concurrent Ticketing System
 
 ## Usage
 
 This implementation uses Kotlin. To download this repo and the dependencies, run:
 ```
 git clone https://github.com/ucasqsl/ticketingsystem
-cd ticketingsystem && ./dependencies.sh
+cd ticketingsystem
+chmod +x *.sh
+./dependencies.sh
 ```
 
 To build the system and run tests:
