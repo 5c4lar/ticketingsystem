@@ -1,2 +1,2 @@
 #!/bin/sh
-kotlinc ticketingsystem/*.kt -include-runtime -d TicketingSystem.jar
+kotlinc ticketingsystem/* -include-runtime -d TicketingSystem.jar

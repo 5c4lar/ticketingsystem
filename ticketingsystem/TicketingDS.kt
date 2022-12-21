@@ -1,10 +1,11 @@
 package ticketingsystem
 
+import ticketingsystem.lock.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.Lock
 
 class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val stationnum: Int, val threadnum: Int) :
   TicketingSystem {
@@ -31,7 +32,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
 
     private fun updateBuy(prevStart: Int, start: Int, end: Int, nextEnd: Int, stamp: Int) {
       while (currentVersion.get() != stamp - 1) {
-        Thread.yield()
+//        Thread.yield()
       }
       for (i in prevStart until end) {
         for (j in maxOf(i, start) + 1..nextEnd) {
@@ -43,7 +44,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
 
     private fun updateRefund(prevStart: Int, start: Int, end: Int, nextEnd: Int, stamp: Int) {
       while (currentVersion.get() != stamp - 1) {
-        Thread.yield()
+//        Thread.yield()
       }
       for (i in prevStart until end) {
         for (j in maxOf(i, start) + 1..nextEnd) {
@@ -57,19 +58,8 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       return start * stationnum - start * (start + 1) / 2 + end - start - 1
     }
 
-    inner class Seat(val cid: Int, val sid: Int) : Comparable<Seat> {
+    inner class Seat(val cid: Int, val sid: Int) : Comparable<Seat>, Lock by TASLock() {
       private val status: AtomicLong = AtomicLong((1L shl stationnum - 1) - 1)
-      private val busy: AtomicBoolean = AtomicBoolean(false)
-
-      fun aquire() {
-        while (!busy.compareAndSet(false, true)) {
-          Thread.yield()
-        }
-      }
-
-      fun release() {
-        busy.set(false)
-      }
 
       fun markInterval(start: Int, end: Int): Boolean {
         val mask = (1L shl end) - (1L shl start)
@@ -120,7 +110,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
         if (stamp >= targetStamp) {
           return seatStates[intervalToId(departure, arrival)]
         }
-        Thread.yield()
+//        Thread.yield()
       }
     }
 
@@ -132,7 +122,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       var seat: Seat
       while (true) {
         seat = intervals[id].poll() ?: return null
-        seat.aquire()
+        seat.lock()
         try {
           if (seat.unmarkInterval(departure, arrival)) {
             stamp = version.incrementAndGet()
@@ -144,7 +134,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
             continue
           }
         } finally {
-          seat.release()
+          seat.unlock()
         }
       }
       updateBuy(prevStart, departure, arrival, nextEnd, stamp)
@@ -174,7 +164,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       val nextEnd: Int
       val seat = seats[cid - 1][sid - 1]
       val stamp: Int
-      seat.aquire()
+      seat.lock()
       try {
         if (!seat.markInterval(departure, arrival)) return false
         stamp = version.incrementAndGet()
@@ -183,7 +173,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
         nextEnd = outer.second
         refundIntervals(prevStart, departure, arrival, nextEnd, seat)
       } finally {
-        seat.release()
+        seat.unlock()
       }
       updateRefund(prevStart, departure, arrival, nextEnd, stamp)
       return true
