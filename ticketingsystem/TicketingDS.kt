@@ -21,11 +21,10 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
     private val currentVersion = AtomicInteger(0)
 
     init {
-      for (cid in 0 until coachnum) {
-        for (sid in 0 until seatnum) {
-          for (interval in intervals) {
-            interval.add(seats[cid][sid])
-          }
+      // add seats to intervals in random order
+      for (interval in intervals) {
+        for (seat in seats.flatten().shuffled()) {
+          interval.add(seat)
         }
       }
     }
@@ -123,10 +122,10 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
         seat.lock()
         try {
           if (seat.unmarkInterval(departure, arrival)) {
-            stamp = version.incrementAndGet()
             val outer = seat.getOuterInterval(departure, arrival)
             prevStart = outer.first
             nextEnd = outer.second
+            stamp = version.incrementAndGet()
             break
           } else {
             continue
@@ -165,11 +164,11 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       seat.lock()
       try {
         if (!seat.markInterval(departure, arrival)) return false
-        stamp = version.incrementAndGet()
         val outer = seat.getOuterInterval(departure, arrival)
         prevStart = outer.first
         nextEnd = outer.second
         refundIntervals(prevStart, departure, arrival, nextEnd, seat)
+        stamp = version.incrementAndGet()
       } finally {
         seat.unlock()
       }
