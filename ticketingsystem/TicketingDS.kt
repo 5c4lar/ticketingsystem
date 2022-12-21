@@ -86,13 +86,11 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
         var prevStart = start
         var nextEnd = end
         while (prevStart > 0) {
-          val mask = (1L shl start) - (1L shl (prevStart - 1))
-          if (num and mask != mask) break
+          if ((num and (1L shl (prevStart - 1))) == 0L) break
           prevStart--
         }
         while (nextEnd < (stationnum - 1)) {
-          val mask = (1L shl (nextEnd + 1)) - (1L shl end)
-          if (num and mask != mask) break
+          if ((num and (1L shl nextEnd)) == 0L) break
           nextEnd++
         }
         return Pair(prevStart, nextEnd)
