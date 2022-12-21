@@ -221,7 +221,9 @@ object Test {
     for (i in 0 until 3) {
       print("[*]" + methodList[i] + " Calls: " + numCallsAll[i].get())
       print(" Time: " + TimeUnit.NANOSECONDS.toMillis(callTimeAll[i].get()) + " ms")
-      println(" Latency: " + TimeUnit.NANOSECONDS.toMicros(callTimeAll[i].get()) / numCallsAll[i].get().toDouble() + " us / op")
+      println(
+        " Latency: " + TimeUnit.NANOSECONDS.toMicros(callTimeAll[i].get()) / numCallsAll[i].get().toDouble() + " us/op"
+      )
       totalCalls += numCallsAll[i].get()
       totalTimes += callTimeAll[i].get()
     }
