@@ -215,37 +215,39 @@ object Test {
     return endTime - startTime
   }
 
-  private fun printStats() {
-    var totalCalls = 0L
-    var totalTimes = 0L
-    for (i in 0 until 3) {
-      print("[*]" + methodList[i] + " Calls: " + numCallsAll[i].get())
-      print(" Time: " + TimeUnit.NANOSECONDS.toMillis(callTimeAll[i].get()) + " ms")
-      println(
-        " Latency: " + TimeUnit.NANOSECONDS.toMicros(callTimeAll[i].get()) / numCallsAll[i].get().toDouble() + " us/op"
-      )
-      totalCalls += numCallsAll[i].get()
-      totalTimes += callTimeAll[i].get()
-    }
-  }
+//  private fun printStats() {
+//    var totalCalls = 0L
+//    var totalTimes = 0L
+//    for (i in 0 until 3) {
+//      print("[*]" + methodList[i] + " Calls: " + numCallsAll[i].get())
+//      print(" Time: " + TimeUnit.NANOSECONDS.toMillis(callTimeAll[i].get()) + " ms")
+//      println(
+//        " Latency: " + TimeUnit.NANOSECONDS.toMicros(callTimeAll[i].get()) / numCallsAll[i].get().toDouble() + " us/op"
+//      )
+//      totalCalls += numCallsAll[i].get()
+//      totalTimes += callTimeAll[i].get()
+//    }
+//  }
 
   fun testWithConfig(threadNum: Int, testNum: Int, benchNum: Int, warmUpNum: Int) {
     threadnum = threadNum
     testnum = testNum
-    readConfig("TrainConfig")
     println("========================================")
     println("ThreadNum: $threadnum")
     val threadPool = Executors.newFixedThreadPool(threadnum)
     ThreadId.reset()
     val times = LongArray(benchNum)
     val totalCalls = LongArray(benchNum)
+    val eachCallCount = Array(benchNum) { LongArray(3) }
+    val eachCallTime = Array(benchNum) { LongArray(3) }
     for (i in 0 until warmUpNum) {
       benchMarkOne(threadPool)
     }
     for (i in 0 until benchNum) {
       val res = benchMarkOne(threadPool)
-      printStats()
       totalCalls[i] = numCallsAll.sumOf { it.get() }
+      eachCallCount[i] = numCallsAll.map { it.get() }.toLongArray()
+      eachCallTime[i] = callTimeAll.map { it.get() }.toLongArray()
       times[i] = res
     }
     try {
@@ -253,6 +255,11 @@ object Test {
       threadPool.awaitTermination(1, TimeUnit.SECONDS)
     } catch (e: InterruptedException) {
       e.printStackTrace()
+    }
+    for (i in 0 until methodList.size) {
+      println("[*]" + methodList[i] + " Calls: " + eachCallCount.sumOf { it[i] } + " Time: " + TimeUnit.NANOSECONDS.toMillis(
+        eachCallTime.sumOf { it[i] }) + " ms" + " Latency: " + TimeUnit.NANOSECONDS.toMicros(eachCallTime.sumOf { it[i] }) / eachCallCount.sumOf { it[i] }
+        .toDouble() + " us/op")
     }
     val ms = TimeUnit.NANOSECONDS.toMillis(times.sum())
     val meanThroughputs = totalCalls.sum().toDouble() / ms
@@ -267,7 +274,7 @@ object Test {
   @JvmStatic
   fun main(args: Array<String>) {
     if (args.size != 4) {
-      println("The arguments of Test is threadNum,  testNum, benchNum, warmUpNum")
+      println("The arguments of Test is threadNum, testNum, benchNum, warmUpNum")
       return
     }
     threadnum = args[0].toInt()
