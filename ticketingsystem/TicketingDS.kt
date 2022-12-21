@@ -85,16 +85,8 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
 
       fun getOuterInterval(start: Int, end: Int): Pair<Int, Int> {
         val num = status.get()
-        var prevStart = start
-        var nextEnd = end
-        while (prevStart > 0) {
-          if ((num and (1L shl (prevStart - 1))) == 0L) break
-          prevStart--
-        }
-        while (nextEnd < (stationnum - 1)) {
-          if ((num and (1L shl nextEnd)) == 0L) break
-          nextEnd++
-        }
+        val prevStart = start - (num shl (64 - start)).inv().countLeadingZeroBits()
+        val nextEnd = end + (num shr end).inv().countTrailingZeroBits()
         return Pair(prevStart, nextEnd)
       }
 
