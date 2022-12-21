@@ -138,11 +138,9 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
         }
       }
       updateBuy(prevStart, departure, arrival, nextEnd, stamp)
-      val ticket = Ticket()
       val cid = seat.cid
       val sid = seat.sid
-      ticket.setFields(tid.incrementAndGet(), rid, cid, sid, departure + 1, arrival + 1, passenger)
-      return ticket
+      return Ticket(tid.incrementAndGet(), rid, cid, sid, departure + 1, arrival + 1, passenger)
     }
 
     private fun refundIntervals(prevStart: Int, start: Int, end: Int, nextEnd: Int, seat: Seat) {
@@ -181,16 +179,6 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
   }
 
   private val routes = Array(routenum) { Route(it + 1) }
-
-  private fun Ticket.setFields(t: Long, r: Int, c: Int, s: Int, d: Int, a: Int, p: String?) {
-    this.tid = t
-    this.route = r
-    this.coach = c
-    this.seat = s
-    this.departure = d
-    this.arrival = a
-    this.passenger = p
-  }
 
   /**
    * @param passenger
