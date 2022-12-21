@@ -60,7 +60,7 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
       return start * stationnum - start * (start + 1) / 2 + end - start - 1
     }
 
-    inner class Seat(val cid: Int, val sid: Int) : Comparable<Seat>, Lock by TASLock() {
+    inner class Seat(val cid: Int, val sid: Int) : Comparable<Seat>, Lock by BackoffLock() {
       private val status: AtomicLong = AtomicLong((1L shl stationnum - 1) - 1)
 
       fun markInterval(start: Int, end: Int): Boolean {
