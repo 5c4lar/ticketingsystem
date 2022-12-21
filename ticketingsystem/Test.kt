@@ -211,7 +211,36 @@ object Test {
     return endTime - startTime
   }
 
-  fun testWithConfig(threadNum: Int, testNum: Int, benchNum: Int, warmUpNum: Int) {
+  data class Result(
+    val times: LongArray,
+    val totalCalls: LongArray,
+    val eachCallCount: Array<LongArray>,
+    val eachCallTime: Array<LongArray>,
+  ) {
+    override fun equals(other: Any?): Boolean {
+      if (this === other) return true
+      if (javaClass != other?.javaClass) return false
+
+      other as Result
+
+      if (!times.contentEquals(other.times)) return false
+      if (!totalCalls.contentEquals(other.totalCalls)) return false
+      if (!eachCallCount.contentDeepEquals(other.eachCallCount)) return false
+      if (!eachCallTime.contentDeepEquals(other.eachCallTime)) return false
+
+      return true
+    }
+
+    override fun hashCode(): Int {
+      var result = times.contentHashCode()
+      result = 31 * result + totalCalls.contentHashCode()
+      result = 31 * result + eachCallCount.contentDeepHashCode()
+      result = 31 * result + eachCallTime.contentDeepHashCode()
+      return result
+    }
+  }
+
+  fun testWithConfig(threadNum: Int, testNum: Int, benchNum: Int, warmUpNum: Int): Result {
     threadnum = threadNum
     testnum = testNum
     println("========================================")
@@ -249,6 +278,7 @@ object Test {
     print(" Total Time: ${TimeUnit.NANOSECONDS.toMillis(times.sum())} ms")
     print(" Mean Throughput: $meanThroughputs ops/ms\n")
     println("========================================")
+    return Result(times, totalCalls, eachCallCount, eachCallTime)
   }
 
   /***********VeriLin */
