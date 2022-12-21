@@ -47,7 +47,8 @@ class Backoff(min: Int, max: Int) {
         if (limit < maxDelay) { // double limit if less than max
             limit *= 2
         }
-        Thread.sleep(delay.toLong())
+//        Thread.sleep(delay.toLong())
+        Thread.sleep(0, delay)
     }
 
     companion object {
