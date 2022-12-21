@@ -12,10 +12,6 @@ object Test {
 
   var testnum = 0 //input
 
-  var isSequential = false //input
-
-  var msec = 0
-  var nsec = 0
   var totalPc = 0
 
   /****************Manually Set Testing Information  */
@@ -41,9 +37,6 @@ object Test {
   val currentTicket: MutableList<Ticket?> = ArrayList()
   val currentRes: MutableList<String> = ArrayList()
   val soldTicket = ArrayList<MutableList<Ticket>>()
-
-  @Volatile
-  var initLock = false
 
   //	final static AtomicInteger tidGen = new AtomicInteger(0);
 //  val rand = ThreadLocalRandom
@@ -77,10 +70,6 @@ object Test {
     private val threadId = ThreadId.get()
     val numCalls = Array(3) { 0L }
     val callTime = Array(3) { 0L }
-    fun print(preTime: Long, postTime: Long, actionName: String) {
-      val ticket = currentTicket[ThreadId.get()]
-      println(preTime.toString() + " " + postTime + " " + ThreadId.get() + " " + actionName + " " + ticket!!.tid + " " + ticket.passenger + " " + ticket.route + " " + ticket.coach + " " + ticket.departure + " " + ticket.arrival + " " + ticket.seat + " " + currentRes[ThreadId.get()])
-    }
 
     private fun getPassengerName(): String {
       val uid = rand.nextInt(testnum).toLong()
@@ -230,7 +219,7 @@ object Test {
     var totalCalls = 0L
     var totalTimes = 0L
     for (i in 0 until 3) {
-      print("[" + methodList[i] + "] Calls: " + numCallsAll[i].get())
+      print("[*]" + methodList[i] + " Calls: " + numCallsAll[i].get())
       print(" Time: " + TimeUnit.NANOSECONDS.toMillis(callTimeAll[i].get()) + " ms")
       println(" Latency: " + TimeUnit.NANOSECONDS.toMicros(callTimeAll[i].get()) / numCallsAll[i].get().toDouble() + " us / op")
       totalCalls += numCallsAll[i].get()
@@ -242,6 +231,8 @@ object Test {
     threadnum = threadNum
     testnum = testNum
     readConfig("TrainConfig")
+    println("========================================")
+    println("ThreadNum: $threadnum")
     val threadPool = Executors.newFixedThreadPool(threadnum)
     ThreadId.reset()
     val times = LongArray(benchNum)
@@ -262,10 +253,11 @@ object Test {
       e.printStackTrace()
     }
     val ms = TimeUnit.NANOSECONDS.toMillis(times.sum())
-    var meanThroughputs = totalCalls.sum().toDouble() / ms
-    print("Total Calls: " + totalCalls.sum())
+    val meanThroughputs = totalCalls.sum().toDouble() / ms
+    print("[*]Total Calls: " + totalCalls.sum())
     print(" Total Time: ${TimeUnit.NANOSECONDS.toMillis(times.sum())} ms")
-    print(" Mean Throughput: $meanThroughputs calls/ms")
+    print(" Mean Throughput: $meanThroughputs ops/ms\n")
+    println("========================================")
   }
 
   /***********VeriLin */
