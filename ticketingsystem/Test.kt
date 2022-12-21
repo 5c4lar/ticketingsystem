@@ -4,6 +4,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.util.*
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicLong
 
 object Test {
 
@@ -31,6 +32,8 @@ object Test {
   var buyRatio = 20
   var inqRatio = 30
 
+  var numCallsAll = Array(3) { AtomicLong(0) }
+  var callTimeAll = Array(3) { AtomicLong(0) }
 
   var tds: TicketingDS? = null
   val methodList: MutableList<String> = ArrayList()
@@ -51,6 +54,8 @@ object Test {
     currentRes.clear()
     methodList.clear()
     freqList.clear()
+    numCallsAll = Array(3) { AtomicLong(0) }
+    callTimeAll = Array(3) { AtomicLong(0) }
     for (i in 0 until threadnum) {
       val threadTickets: MutableList<Ticket> = ArrayList()
       soldTicket.add(threadTickets)
@@ -70,18 +75,19 @@ object Test {
   class Executor() {
     private val rand = ThreadLocalRandom.current()
     private val threadId = ThreadId.get()
+    val numCalls = Array(3) { 0L }
+    val callTime = Array(3) { 0L }
     fun print(preTime: Long, postTime: Long, actionName: String) {
       val ticket = currentTicket[ThreadId.get()]
       println(preTime.toString() + " " + postTime + " " + ThreadId.get() + " " + actionName + " " + ticket!!.tid + " " + ticket.passenger + " " + ticket.route + " " + ticket.coach + " " + ticket.departure + " " + ticket.arrival + " " + ticket.seat + " " + currentRes[ThreadId.get()])
     }
 
-    fun getPassengerName(): String {
-//      val uid = rand.nextInt(testnum).toLong()
-//    return "passenger$uid"
-      return "passenger"
+    private fun getPassengerName(): String {
+      val uid = rand.nextInt(testnum).toLong()
+      return "passenger$uid"
     }
 
-    fun execute(num: Int): Boolean {
+    private fun execute(num: Int): Boolean {
       val route: Int
       val departure: Int
       val arrival: Int
@@ -92,7 +98,11 @@ object Test {
           val n = rand.nextInt(soldTicket[threadId].size)
           ticket = soldTicket[threadId].removeAt(n)
           currentTicket[threadId] = ticket
+          numCalls[num]++
+          val start = System.nanoTime()
           val flag = tds!!.refundTicket(ticket)
+          val end = System.nanoTime()
+          callTime[num] += end - start
           currentRes[threadId] = "true"
           flag
         }
@@ -102,7 +112,11 @@ object Test {
           route = rand.nextInt(routenum) + 1
           departure = rand.nextInt(stationnum - 1) + 1
           arrival = departure + rand.nextInt(stationnum - departure) + 1
+          numCalls[num]++
+          val start = System.nanoTime()
           ticket = tds!!.buyTicket(passenger, route, departure, arrival)
+          val end = System.nanoTime()
+          callTime[num] += end - start
           if (ticket == null) {
             ticket = Ticket()
             ticket.passenger = passenger
@@ -126,7 +140,11 @@ object Test {
           ticket.departure = rand.nextInt(stationnum - 1) + 1
           ticket.arrival =
             ticket.departure + rand.nextInt(stationnum - ticket.departure) + 1 // arrival is always greater than departure
+          numCalls[num]++
+          val start = System.nanoTime()
           ticket.seat = tds!!.inquiry(ticket.route, ticket.departure, ticket.arrival)
+          val end = System.nanoTime()
+          callTime[num] += end - start
           currentTicket[threadId] = ticket
           currentRes[threadId] = "true"
           true
@@ -145,6 +163,7 @@ object Test {
       for (j in methodList.indices) {
         if (sel >= cnt && sel < cnt + freqList[j]) {
           execute(j)
+          break
         } else {
           cnt += freqList[j]
         }
@@ -194,6 +213,8 @@ object Test {
           executor.step()
         }
         exitLatch.countDown()
+        numCallsAll.zip(executor.numCalls) { a, b -> a.addAndGet(b) }
+        callTimeAll.zip(executor.callTime) { a, b -> a.addAndGet(b) }
       }
     }
     val startTime = System.nanoTime()
@@ -203,6 +224,48 @@ object Test {
     exitLatch.await()
     val endTime = System.nanoTime()
     return endTime - startTime
+  }
+
+  private fun printStats() {
+    var totalCalls = 0L
+    var totalTimes = 0L
+    for (i in 0 until 3) {
+      print("[" + methodList[i] + "] Calls: " + numCallsAll[i].get())
+      print(" Time: " + TimeUnit.NANOSECONDS.toMillis(callTimeAll[i].get()) + " ms")
+      println(" Latency: " + TimeUnit.NANOSECONDS.toMicros(callTimeAll[i].get()) / numCallsAll[i].get().toDouble() + " us / op")
+      totalCalls += numCallsAll[i].get()
+      totalTimes += callTimeAll[i].get()
+    }
+  }
+
+  fun testWithConfig(threadNum: Int, testNum: Int, benchNum: Int, warmUpNum: Int) {
+    threadnum = threadNum
+    testnum = testNum
+    readConfig("TrainConfig")
+    val threadPool = Executors.newFixedThreadPool(threadnum)
+    ThreadId.reset()
+    val times = LongArray(benchNum)
+    val totalCalls = LongArray(benchNum)
+    for (i in 0 until warmUpNum) {
+      benchMarkOne(threadPool)
+    }
+    for (i in 0 until benchNum) {
+      val res = benchMarkOne(threadPool)
+      printStats()
+      totalCalls[i] = numCallsAll.sumOf { it.get() }
+      times[i] = res
+    }
+    try {
+      threadPool.shutdown()
+      threadPool.awaitTermination(1, TimeUnit.SECONDS)
+    } catch (e: InterruptedException) {
+      e.printStackTrace()
+    }
+    val ms = TimeUnit.NANOSECONDS.toMillis(times.sum())
+    var meanThroughputs = totalCalls.sum().toDouble() / ms
+    print("Total Calls: " + totalCalls.sum())
+    print(" Total Time: ${TimeUnit.NANOSECONDS.toMillis(times.sum())} ms")
+    print(" Mean Throughput: $meanThroughputs calls/ms")
   }
 
   /***********VeriLin */
@@ -218,23 +281,6 @@ object Test {
     val benchNum = args[2].toInt()
     val warmUpNum = args[3].toInt()
     readConfig("TrainConfig")
-    val times = LongArray(benchNum)
-    val threadPool = Executors.newFixedThreadPool(threadnum)
-    for (i in 0 until warmUpNum) {
-      benchMarkOne(threadPool)
-    }
-    for (i in 0 until benchNum) {
-      val res = benchMarkOne(threadPool)
-      times[i] = res
-    }
-    try {
-      threadPool.shutdown()
-      threadPool.awaitTermination(1, TimeUnit.SECONDS)
-    } catch (e: InterruptedException) {
-      e.printStackTrace()
-    }
-    val meanThroughputs = (testnum * threadnum * 10e6 * benchNum) / times.sum().toDouble()
-    // calc average without min and max
-    println("Average throughput: $meanThroughputs ops/ms")
+    testWithConfig(threadnum, testnum, benchNum, warmUpNum)
   }
 }
