@@ -22,8 +22,11 @@ class TicketingDS(routenum: Int, val coachnum: Int, val seatnum: Int, val statio
 
     init {
       // add seats to intervals in random order
-      for (interval in intervals) {
-        for (seat in seats.flatten().shuffled()) {
+      val random = java.util.Random()
+      random.setSeed(0)
+      for (i in 0 until (stationnum * (stationnum - 1) / 2)) {
+        val interval = intervals[i]
+        for (seat in seats.flatten().shuffled(random)) {
           interval.add(seat)
         }
       }
