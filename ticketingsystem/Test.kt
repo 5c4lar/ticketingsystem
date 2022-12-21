@@ -38,8 +38,6 @@ object Test {
   val currentRes: MutableList<String> = ArrayList()
   val soldTicket = ArrayList<MutableList<Ticket>>()
 
-  //	final static AtomicInteger tidGen = new AtomicInteger(0);
-//  val rand = ThreadLocalRandom
   fun initialization() {
     tds = TicketingDS(routenum, coachnum, seatnum, stationnum, threadnum)
     soldTicket.clear()
@@ -72,8 +70,7 @@ object Test {
     val callTime = Array(3) { 0L }
 
     private fun getPassengerName(): String {
-      val uid = rand.nextInt(testnum).toLong()
-      return "passenger$uid"
+      return "passenger"
     }
 
     private fun execute(num: Int): Boolean {
@@ -166,7 +163,6 @@ object Test {
       val scanner = Scanner(File(filename))
       while (scanner.hasNextLine()) {
         val line = scanner.nextLine()
-        //System.out.println(line);
         val linescanner = Scanner(line)
         if (line == "") {
           linescanner.close()
@@ -214,20 +210,6 @@ object Test {
     val endTime = System.nanoTime()
     return endTime - startTime
   }
-
-//  private fun printStats() {
-//    var totalCalls = 0L
-//    var totalTimes = 0L
-//    for (i in 0 until 3) {
-//      print("[*]" + methodList[i] + " Calls: " + numCallsAll[i].get())
-//      print(" Time: " + TimeUnit.NANOSECONDS.toMillis(callTimeAll[i].get()) + " ms")
-//      println(
-//        " Latency: " + TimeUnit.NANOSECONDS.toMicros(callTimeAll[i].get()) / numCallsAll[i].get().toDouble() + " us/op"
-//      )
-//      totalCalls += numCallsAll[i].get()
-//      totalTimes += callTimeAll[i].get()
-//    }
-//  }
 
   fun testWithConfig(threadNum: Int, testNum: Int, benchNum: Int, warmUpNum: Int) {
     threadnum = threadNum
