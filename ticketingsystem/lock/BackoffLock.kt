@@ -21,7 +21,6 @@ import java.util.concurrent.locks.Lock
  */
 class BackoffLock : Lock {
   private val backoff: Backoff = Backoff(MIN_DELAY, MAX_DELAY)
-  private val random = Random()
   private val state = AtomicBoolean(false)
   override fun lock() {
 
