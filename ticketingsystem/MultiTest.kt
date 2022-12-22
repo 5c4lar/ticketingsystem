@@ -14,7 +14,8 @@ fun main(args: Array<String>) {
   Test.readConfig("TrainConfig")
   val results: MutableMap<Int, Test.Result> = HashMap()
   for (threadNum in threadNums) {
-    val res = Test.testWithConfig(threadNum, testNum, benchNum, warmUpNum)
+    val currentTestNum = testNum * 64 / threadNum
+    val res = Test.testWithConfig(threadNum, currentTestNum, benchNum, warmUpNum)
     results[threadNum] = res
   }
   println("========================================")
