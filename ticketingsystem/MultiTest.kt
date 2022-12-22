@@ -3,7 +3,7 @@ package ticketingsystem
 import java.util.concurrent.TimeUnit
 
 fun main(args: Array<String>) {
-  val threadNums = arrayOf(1, 2, 4, 8, 16, 32)
+  val threadNums = arrayOf(1, 2, 4, 8, 16, 32, 64)
   if (args.size != 3) {
     println("The arguments of Test is testNum, benchNum, warmUpNum")
     return
